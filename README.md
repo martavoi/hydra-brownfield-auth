@@ -1,6 +1,8 @@
-# hydra-auth
+# hydra-brownfield-auth
 
-A demo showing how to add **OAuth 2.0 + OpenID Connect** to an existing user base using [Ory Hydra](https://www.ory.sh/hydra/) — without migrating or replacing your existing profile/identity infrastructure.
+A demo showing how to add **OAuth 2.0 + OpenID Connect** to a brownfield system using [Ory Hydra](https://www.ory.sh/hydra/) — without migrating or replacing your existing profile/identity infrastructure.
+
+> **Brownfield** is a software term for an environment where new components must coexist with existing systems, databases, and conventions — as opposed to *greenfield*, where you build everything from scratch. Here it means: real users already exist in a database, a profile service already handles authentication logic, and we need to bolt on OAuth2/OIDC without touching any of that.
 
 The authorization flow is **OAuth 2.1-compliant**: Authorization Code with PKCE is enforced, implicit and password grants are disabled.
 
