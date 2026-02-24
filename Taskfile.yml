@@ -169,6 +169,37 @@ tasks:
           --data-urlencode "token={{.TOKEN}}" \
           | python3 -m json.tool 2>&1 || true
 
+  test:headless:
+    desc: "Step 1 of headless flow: request OTP and print session_id"
+    silent: true
+    cmds:
+      - |
+        echo "══ Headless Auth — Step 1: Request OTP ════════════════════════"
+        SESSION=$(curl -s -X POST http://localhost:4455/api/headless/request-otp \
+          -H 'Content-Type: application/json' \
+          -d '{"phone":"+12125550001","client_id":"test-client","scope":"openid offline profile"}' \
+          | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id') or d)")
+        echo ""
+        echo "  session_id: $SESSION"
+        echo ""
+        echo "  Check 'task sms-logs' for the OTP, then run:"
+        echo "    task test:headless:verify SESSION=$SESSION OTP=<code>"
+        echo ""
+
+  test:headless:verify:
+    desc: "Step 2 of headless flow: verify OTP and receive tokens (requires: SESSION=<id> OTP=<code>)"
+    silent: true
+    requires:
+      vars: [SESSION, OTP]
+    cmds:
+      - |
+        echo "══ Headless Auth — Step 2: Verify OTP ═════════════════════════"
+        curl -s -X POST http://localhost:4455/api/headless/verify-otp \
+          -H 'Content-Type: application/json' \
+          -d "{\"session_id\":\"{{.SESSION}}\",\"otp\":\"{{.OTP}}\"}" \
+          | python3 -m json.tool
+        echo ""
+
   test:profile-srv:
     desc: Run profile-srv integration tests
     dir: profile-srv
