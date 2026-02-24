@@ -1,0 +1,33 @@
+serve:
+  public:
+    port: 4444
+  admin:
+    port: 4445
+  cookies:
+    same_site_mode: Lax
+
+urls:
+  self:
+    issuer: http://localhost:4444
+  login:   http://localhost:4455/login
+  consent: http://localhost:4455/consent
+  logout:  http://localhost:4455/logout
+
+secrets:
+  system:
+    - change-this-to-a-32-char-secret!!
+
+oidc:
+  subject_identifiers:
+    supported_types:
+      - public
+    pairwise:
+      salt: change-this-pairwise-salt-value
+
+oauth2:
+  pkce:
+    enforced: true
+
+log:
+  level: debug
+  format: text

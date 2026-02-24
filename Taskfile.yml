@@ -1,0 +1,248 @@
+version: '3'
+
+tasks:
+
+  default:
+    desc: List all available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  # ── Protobuf ───────────────────────────────────────────────────────────────
+
+  proto:
+    desc: Generate Go protobuf stubs alongside proto files in profile-srv/proto
+    cmds:
+      - protoc
+          --proto_path=profile-srv/proto
+          --go_out=profile-srv/proto
+          --go_opt=paths=source_relative
+          --go-grpc_out=profile-srv/proto
+          --go-grpc_opt=paths=source_relative
+          profile/profile.proto
+    sources:
+      - profile-srv/proto/**/*.proto
+    generates:
+      - profile-srv/proto/profile/*.pb.go
+
+  # ── Migrations ─────────────────────────────────────────────────────────────
+
+  migrate:profile-srv:
+    desc: Apply profile-srv SQLite schema migrations
+    cmds:
+      - docker-compose run --rm profile-srv /app/profile-srv migrate
+
+  # ── Build ──────────────────────────────────────────────────────────────────
+
+  build:profile-srv:
+    desc: Build the profile-srv Docker image
+    cmds:
+      - docker-compose build profile-srv
+
+  build:web-auth:
+    desc: Build the web-auth Docker image
+    cmds:
+      - docker-compose build web-auth
+
+  build:
+    desc: Build all Docker images
+    cmds:
+      - task: build:profile-srv
+      - task: build:web-auth
+
+  up:
+    desc: Start all services (detached)
+    cmds:
+      - docker-compose up -d
+
+  down:
+    desc: Stop all services
+    cmds:
+      - docker-compose down
+
+  clean:
+    desc: Remove containers, volumes, and generated protobuf files
+    cmds:
+      - docker-compose down -v --remove-orphans
+      - rm -f profile-srv/proto/profile/*.pb.go
+
+  # ── Logs ───────────────────────────────────────────────────────────────────
+
+  logs:
+    desc: Follow logs from all services
+    cmds:
+      - docker-compose logs -f
+
+  sms-logs:
+    desc: Follow SMS webhook simulator logs (to read OTP codes)
+    cmds:
+      - docker-compose logs -f sms-webhook-sim
+
+  # ── Seed ───────────────────────────────────────────────────────────────────
+
+  seed:
+    desc: Register the test OAuth2 client in Hydra
+    vars:
+      HYDRA_ADMIN: '{{default "http://localhost:4445" .HYDRA_ADMIN}}'
+    silent: true
+    cmds:
+      - |
+        echo "Creating test OAuth2 client..."
+        curl -s -X POST "{{.HYDRA_ADMIN}}/admin/clients" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "client_id": "test-client",
+            "client_secret": "test-secret",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "scope": "openid offline profile",
+            "redirect_uris": ["http://localhost:9010/callback"],
+            "token_endpoint_auth_method": "client_secret_post"
+          }' | python3 -m json.tool 2>/dev/null || echo "(created)"
+        echo ""
+        echo "✓ test-client created."
+        echo "  client_id:     test-client"
+        echo "  client_secret: test-secret"
+        echo "  redirect_uri:  http://localhost:9010/callback"
+
+  # ── End-to-end test flow ───────────────────────────────────────────────────
+
+  test:pkce:
+    desc: Generate a PKCE code_verifier + code_challenge pair
+    silent: true
+    cmds:
+      - |
+        VERIFIER=$(openssl rand -base64 96 | tr -d '=+/ \n' | cut -c1-96)
+        CHALLENGE=$(echo -n "$VERIFIER" | openssl dgst -sha256 -binary | base64 | tr '+/' '-_' | tr -d '=')
+        echo "CODE_VERIFIER  : $VERIFIER"
+        echo "CODE_CHALLENGE : $CHALLENGE"
+
+  test:url:
+    desc: "Print the authorization URL (requires: CODE_CHALLENGE=<value>)"
+    silent: true
+    requires:
+      vars: [CODE_CHALLENGE]
+    vars:
+      STATE:
+        sh: openssl rand -hex 8
+    cmds:
+      - |
+        URL="http://localhost:4444/oauth2/auth"
+        URL="${URL}?client_id=test-client"
+        URL="${URL}&redirect_uri=http://localhost:9010/callback"
+        URL="${URL}&response_type=code"
+        URL="${URL}&scope=openid+offline+profile"
+        URL="${URL}&state={{.STATE}}"
+        URL="${URL}&code_challenge={{.CODE_CHALLENGE}}"
+        URL="${URL}&code_challenge_method=S256"
+        echo ""
+        echo "Open this URL in your browser:"
+        echo ""
+        echo "  $URL"
+        echo ""
+
+  test:token:
+    desc: "Exchange auth code for tokens (requires: CODE=<value> VERIFIER=<value>)"
+    silent: true
+    requires:
+      vars: [CODE, VERIFIER]
+    cmds:
+      - |
+        curl -s -X POST "http://localhost:4444/oauth2/token" \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          --data-urlencode "grant_type=authorization_code" \
+          --data-urlencode "code={{.CODE}}" \
+          --data-urlencode "redirect_uri=http://localhost:9010/callback" \
+          --data-urlencode "client_id=test-client" \
+          --data-urlencode "client_secret=test-secret" \
+          --data-urlencode "code_verifier={{.VERIFIER}}" \
+          | python3 -m json.tool
+
+  test:introspect:
+    desc: "Introspect an access token (requires: TOKEN=<value>)"
+    silent: true
+    requires:
+      vars: [TOKEN]
+    cmds:
+      - |
+        curl -s -X POST "http://localhost:4445/admin/oauth2/introspect" \
+          --data-urlencode "token={{.TOKEN}}" \
+          | python3 -m json.tool 2>&1 || true
+
+  test:profile-srv:
+    desc: Run profile-srv integration tests
+    dir: profile-srv
+    cmds:
+      - CGO_ENABLED=1 go test -v -count=1 ./...
+
+  test:flow:
+    desc: Interactive end-to-end OAuth2.1 passwordless flow
+    interactive: true
+    silent: true
+    cmds:
+      - |
+        echo "╔══════════════════════════════════════════════════════════════╗"
+        echo "║      hydra-auth  ·  OAuth2.1 passwordless flow test          ║"
+        echo "╚══════════════════════════════════════════════════════════════╝"
+        echo ""
+
+        VERIFIER=$(openssl rand -base64 96 | tr -d '=+/ \n' | cut -c1-96)
+        CHALLENGE=$(echo -n "$VERIFIER" | openssl dgst -sha256 -binary | base64 | tr '+/' '-_' | tr -d '=')
+        STATE="state-$(openssl rand -hex 8)"
+
+        echo "PKCE code_verifier  : ${VERIFIER:0:32}..."
+        echo "PKCE code_challenge : $CHALLENGE"
+        echo ""
+
+        URL="http://localhost:4444/oauth2/auth"
+        URL="${URL}?client_id=test-client"
+        URL="${URL}&redirect_uri=http://localhost:9010/callback"
+        URL="${URL}&response_type=code"
+        URL="${URL}&scope=openid+offline+profile"
+        URL="${URL}&state=${STATE}"
+        URL="${URL}&code_challenge=${CHALLENGE}"
+        URL="${URL}&code_challenge_method=S256"
+
+        echo "══ Step 1: Open this URL in your browser ══════════════════════"
+        echo ""
+        echo "  $URL"
+        echo ""
+        echo "  → You will be redirected to http://localhost:4455/login"
+        echo ""
+        echo "══ Step 2: Enter your phone number ════════════════════════════"
+        echo ""
+        echo "  Watch OTP delivery (in another terminal):"
+        echo "    task sms-logs"
+        echo ""
+        echo "══ Step 3: Enter the OTP, then after redirect copy the 'code' ═"
+        echo ""
+        echo "  Callback URL will look like:"
+        echo "    http://localhost:9010/callback?code=AUTH_CODE&state=${STATE}"
+        echo ""
+        read -r -p "  Paste the 'code' value: " AUTH_CODE
+        echo ""
+
+        echo "══ Token response ══════════════════════════════════════════════"
+        TOKEN_RESPONSE=$(curl -s -X POST "http://localhost:4444/oauth2/token" \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          --data-urlencode "grant_type=authorization_code" \
+          --data-urlencode "code=${AUTH_CODE}" \
+          --data-urlencode "redirect_uri=http://localhost:9010/callback" \
+          --data-urlencode "client_id=test-client" \
+          --data-urlencode "client_secret=test-secret" \
+          --data-urlencode "code_verifier=${VERIFIER}")
+
+        echo "$TOKEN_RESPONSE" | python3 -m json.tool 2>/dev/null || echo "$TOKEN_RESPONSE"
+
+        ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" \
+          | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+
+        if [ -n "$ACCESS_TOKEN" ]; then
+          echo ""
+          echo "══ Introspect access token ══════════════════════════════════════"
+          curl -s -X POST "http://localhost:4445/admin/oauth2/introspect" \
+            --data-urlencode "token=${ACCESS_TOKEN}" \
+            | python3 -m json.tool 2>&1 || true
+        fi
+        echo ""
+        echo "✓ Done."

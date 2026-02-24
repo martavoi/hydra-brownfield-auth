@@ -1,0 +1,17 @@
+# Dependencies
+web-auth/node_modules/
+web-auth/dist/
+
+# Binaries
+sms-webhook-sim/sms-webhook-sim
+profile-srv/profile-srv
+
+# SQLite databases
+**/*.db
+**/*.sqlite
+
+# Task checksums
+.task/
+
+# macOS
+.DS_Store

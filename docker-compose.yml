@@ -1,0 +1,106 @@
+version: "3.9"
+
+networks:
+  hydra-net:
+    driver: bridge
+
+volumes:
+  hydra-sqlite:
+  profile-data:
+
+services:
+
+  # ── SMS webhook simulator ─────────────────────────────────────────────────
+  sms-webhook-sim:
+    build: ./sms-webhook-sim
+    container_name: sms-webhook-sim
+    networks: [hydra-net]
+    ports:
+      - "8888:8888"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8888/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Profile gRPC server ───────────────────────────────────────────────────
+  profile-srv:
+    build: ./profile-srv
+    container_name: profile-srv
+    networks: [hydra-net]
+    ports:
+      - "50051:50051"
+    volumes:
+      - profile-data:/data
+    environment:
+      GRPC_PORT:       ":50051"
+      DB_PATH:         "/data/profile.db"
+      SMS_WEBHOOK_URL: "http://sms-webhook-sim:8888/sms"
+      OTP_TTL_SECONDS: "300"
+    depends_on:
+      sms-webhook-sim:
+        condition: service_healthy
+
+  # ── Hydra DB migration (runs once then exits) ─────────────────────────────
+  hydra-migrate:
+    image: oryd/hydra:v2.3.0
+    container_name: hydra-migrate
+    user: root
+    networks: [hydra-net]
+    command: migrate sql up -e --yes
+    restart: on-failure
+    environment:
+      DSN: "sqlite:///mnt/sqlite/db.sqlite?_fk=true&mode=rwc"
+    volumes:
+      - hydra-sqlite:/mnt/sqlite
+
+  # ── Ory Hydra OAuth2.1 server ─────────────────────────────────────────────
+  hydra:
+    image: oryd/hydra:v2.3.0
+    container_name: hydra
+    user: root
+    networks: [hydra-net]
+    command: serve all --dev
+    ports:
+      - "4444:4444"   # Public OAuth2 endpoints
+      - "4445:4445"   # Admin API (internal use only)
+    environment:
+      DSN:                                           "sqlite:///mnt/sqlite/db.sqlite?_fk=true&mode=rwc"
+      SERVE_PUBLIC_PORT:                             "4444"
+      SERVE_ADMIN_PORT:                              "4445"
+      SERVE_COOKIES_SAME_SITE_MODE:                  "Lax"
+      URLS_SELF_ISSUER:                              "http://localhost:4444"
+      URLS_LOGIN:                                    "http://localhost:4455/login"
+      URLS_CONSENT:                                  "http://localhost:4455/consent"
+      URLS_LOGOUT:                                   "http://localhost:4455/logout"
+      SECRETS_SYSTEM:                                "change-this-to-a-32-char-secret!!"
+      OIDC_SUBJECT_IDENTIFIERS_SUPPORTED_TYPES:      "public"
+      OIDC_SUBJECT_IDENTIFIERS_PAIRWISE_SALT:        "change-this-pairwise-salt-value"
+      OAUTH2_PKCE_ENFORCED:                          "true"
+      LOG_LEVEL:                                     "info"
+      LOG_FORMAT:                                    "text"
+    volumes:
+      - hydra-sqlite:/mnt/sqlite
+    depends_on:
+      hydra-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── Astro login/consent web app ───────────────────────────────────────────
+  web-auth:
+    build:
+      context: .
+      dockerfile: web-auth/Dockerfile
+    container_name: web-auth
+    networks: [hydra-net]
+    ports:
+      - "4455:4321"   # host:4455 maps to Astro's default port 4321
+    environment:
+      HOST:             "0.0.0.0"
+      PORT:             "4321"
+      PROFILE_SRV_ADDR: "profile-srv:50051"
+      HYDRA_ADMIN_URL:  "http://hydra:4445"
+      PROTO_PATH:       "/proto/profile/profile.proto"
+    depends_on:
+      - profile-srv
+      - hydra

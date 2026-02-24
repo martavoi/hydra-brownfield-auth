@@ -1,0 +1,118 @@
+---
+const { searchParams } = Astro.url;
+const loginChallenge = searchParams.get('login_challenge') ?? '';
+const stage = searchParams.get('stage') ?? 'phone';
+const phone = searchParams.get('phone') ?? '';
+const error = searchParams.get('error') ?? '';
+
+if (!loginChallenge) {
+  return Astro.redirect('/error?msg=missing_login_challenge');
+}
+
+const errorMessages: Record<string, string> = {
+  missing_fields:    'Missing required fields. Please try again.',
+  otp_send_failed:   'Could not send OTP. Please try again.',
+  invalid_otp:       'Invalid or expired OTP. Please try again.',
+  internal_error:    'An internal error occurred. Please try again.',
+  hydra_error:       'Authentication service error. Please try again.',
+};
+
+const errorText = error ? (errorMessages[error] ?? 'An error occurred.') : '';
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign In</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 380px;
+    }
+    h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
+    .subtitle { color: #666; margin: 0 0 1.75rem; font-size: .95rem; }
+    label { display: block; font-size: .875rem; font-weight: 600; margin-bottom: .35rem; }
+    input[type="tel"],
+    input[type="text"] {
+      display: block; width: 100%; padding: .65rem .85rem;
+      font-size: 1rem; border: 1.5px solid #ddd; border-radius: 8px;
+      outline: none; transition: border-color .15s;
+    }
+    input:focus { border-color: #4f46e5; }
+    button {
+      margin-top: 1.25rem; display: block; width: 100%;
+      padding: .75rem; background: #4f46e5; color: #fff;
+      font-size: 1rem; font-weight: 600; border: none;
+      border-radius: 8px; cursor: pointer; transition: background .15s;
+    }
+    button:hover { background: #4338ca; }
+    .error {
+      background: #fef2f2; border: 1px solid #fecaca;
+      color: #b91c1c; border-radius: 8px; padding: .65rem .85rem;
+      font-size: .875rem; margin-bottom: 1rem;
+    }
+    .hint { font-size: .8rem; color: #888; margin-top: .5rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Sign In</h1>
+    <p class="subtitle">Passwordless — we'll send you a one-time code.</p>
+
+    {errorText && <div class="error">{errorText}</div>}
+
+    {stage === 'phone' && (
+      <form method="POST" action="/api/request-otp">
+        <input type="hidden" name="login_challenge" value={loginChallenge} />
+        <label for="phone">Phone number</label>
+        <input
+          id="phone"
+          type="tel"
+          name="phone"
+          placeholder="+1 555 000 0000"
+          required
+          autofocus
+        />
+        <button type="submit">Send Code</button>
+      </form>
+    )}
+
+    {stage === 'otp' && (
+      <form method="POST" action="/api/verify-otp">
+        <input type="hidden" name="login_challenge" value={loginChallenge} />
+        <input type="hidden" name="phone" value={phone} />
+        <label for="otp">6-digit code sent to {phone}</label>
+        <input
+          id="otp"
+          type="text"
+          name="otp"
+          inputmode="numeric"
+          pattern="[0-9]{6}"
+          maxlength="6"
+          placeholder="000000"
+          required
+          autofocus
+        />
+        <p class="hint">Didn't get a code? Check the sms-webhook-sim logs.</p>
+        <button type="submit">Verify</button>
+      </form>
+    )}
+  </div>
+</body>
+</html>

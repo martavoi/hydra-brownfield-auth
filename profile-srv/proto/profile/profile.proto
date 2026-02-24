@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package profile;
+
+option go_package = "github.com/hydra-auth/profile-srv/proto/profile";
+
+service ProfileService {
+  rpc Register   (RegisterRequest)   returns (RegisterResponse);
+  rpc GetById    (GetByIdRequest)    returns (ProfileResponse);
+  rpc GetByPhone (GetByPhoneRequest) returns (ProfileResponse);
+  rpc UpdateById (UpdateByIdRequest) returns (ProfileResponse);
+  rpc RequestOtp (RequestOtpRequest) returns (RequestOtpResponse);
+  rpc VerifyOtp  (VerifyOtpRequest)  returns (VerifyOtpResponse);
+}
+
+// ── Register ─────────────────────────────────────────────────────────────────
+
+message RegisterRequest {
+  string phone   = 1; // required
+  string fname   = 2; // optional
+  string lname   = 3; // optional
+  string email   = 4; // optional
+  string address = 5; // optional
+}
+
+message RegisterResponse {
+  Profile profile = 1;
+}
+
+// ── GetById ───────────────────────────────────────────────────────────────────
+
+message GetByIdRequest {
+  string id = 1;
+}
+
+// ── GetByPhone ────────────────────────────────────────────────────────────────
+
+message GetByPhoneRequest {
+  string phone = 1;
+}
+
+// ── UpdateById ────────────────────────────────────────────────────────────────
+
+message UpdateByIdRequest {
+  string id      = 1;
+  string fname   = 2; // optional — empty string means "no change"
+  string lname   = 3;
+  string email   = 4;
+  string address = 5;
+}
+
+// ── OTP ───────────────────────────────────────────────────────────────────────
+
+message RequestOtpRequest {
+  string phone = 1;
+}
+
+message RequestOtpResponse {
+  bool sent = 1;
+}
+
+message VerifyOtpRequest {
+  string phone = 1;
+  string otp   = 2;
+}
+
+message VerifyOtpResponse {
+  bool   valid      = 1;
+  string profile_id = 2; // populated when valid=true
+}
+
+// ── Shared ────────────────────────────────────────────────────────────────────
+
+message ProfileResponse {
+  Profile profile = 1;
+}
+
+message Profile {
+  string id      = 1;
+  string phone   = 2;
+  string fname   = 3;
+  string lname   = 4;
+  string email   = 5;
+  string address = 6;
+}

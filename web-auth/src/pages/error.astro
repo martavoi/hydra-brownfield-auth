@@ -1,0 +1,20 @@
+---
+const msg = Astro.url.searchParams.get('msg') ?? 'unknown_error';
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Error</title>
+  <style>
+    body { font-family: system-ui, sans-serif; text-align: center; padding: 4rem 1rem; }
+    code { background: #f3f4f6; padding: .2em .5em; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Something went wrong</h1>
+  <p>Error: <code>{msg}</code></p>
+</body>
+</html>

@@ -1,0 +1,32 @@
+---
+import { getConsentRequest, acceptConsent } from '../lib/hydraClient';
+
+const { searchParams } = Astro.url;
+const consentChallenge = searchParams.get('consent_challenge') ?? '';
+
+if (!consentChallenge) {
+  return Astro.redirect('/error?msg=missing_consent_challenge');
+}
+
+let redirectTo: string;
+try {
+  const consentReq = await getConsentRequest(consentChallenge);
+  const scopes: string[] = consentReq.requested_scope ?? [];
+  const result = await acceptConsent(consentChallenge, scopes);
+  redirectTo = result.redirect_to;
+} catch (err) {
+  console.error('Consent auto-accept error:', err);
+  return Astro.redirect('/error?msg=consent_failed');
+}
+
+return Astro.redirect(redirectTo);
+---
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Redirecting…</title>
+</head>
+<body>Redirecting to application…</body>
+</html>
