@@ -81,13 +81,14 @@ tasks:
   # ── Seed ───────────────────────────────────────────────────────────────────
 
   seed:
-    desc: Register the test OAuth2 client in Hydra
+    desc: Register (or re-register) the test OAuth2 client in Hydra
     vars:
       HYDRA_ADMIN: '{{default "http://localhost:4445" .HYDRA_ADMIN}}'
     silent: true
     cmds:
       - |
-        echo "Creating test OAuth2 client..."
+        echo "Registering test OAuth2 client..."
+        curl -s -X DELETE "{{.HYDRA_ADMIN}}/admin/clients/test-client" > /dev/null 2>&1 || true
         curl -s -X POST "{{.HYDRA_ADMIN}}/admin/clients" \
           -H "Content-Type: application/json" \
           -d '{
@@ -95,15 +96,15 @@ tasks:
             "client_secret": "test-secret",
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
-            "scope": "openid offline profile",
-            "redirect_uris": ["http://localhost:9010/callback"],
+            "scope": "openid offline profile email phone",
+            "redirect_uris": ["http://localhost:4455/callback"],
             "token_endpoint_auth_method": "client_secret_post"
           }' | python3 -m json.tool 2>/dev/null || echo "(created)"
         echo ""
-        echo "✓ test-client created."
+        echo "✓ test-client registered."
         echo "  client_id:     test-client"
         echo "  client_secret: test-secret"
-        echo "  redirect_uri:  http://localhost:9010/callback"
+        echo "  redirect_uri:  http://localhost:4455/callback"
 
   # ── End-to-end test flow ───────────────────────────────────────────────────
 
@@ -129,7 +130,7 @@ tasks:
       - |
         URL="http://localhost:4444/oauth2/auth"
         URL="${URL}?client_id=test-client"
-        URL="${URL}&redirect_uri=http://localhost:9010/callback"
+        URL="${URL}&redirect_uri=http://localhost:4455/callback"
         URL="${URL}&response_type=code"
         URL="${URL}&scope=openid+offline+profile"
         URL="${URL}&state={{.STATE}}"
@@ -152,7 +153,7 @@ tasks:
           -H "Content-Type: application/x-www-form-urlencoded" \
           --data-urlencode "grant_type=authorization_code" \
           --data-urlencode "code={{.CODE}}" \
-          --data-urlencode "redirect_uri=http://localhost:9010/callback" \
+          --data-urlencode "redirect_uri=http://localhost:4455/callback" \
           --data-urlencode "client_id=test-client" \
           --data-urlencode "client_secret=test-secret" \
           --data-urlencode "code_verifier={{.VERIFIER}}" \
@@ -200,6 +201,55 @@ tasks:
           | python3 -m json.tool
         echo ""
 
+  # ── Token exchange (legacy → OAuth migration) ─────────────────────────────
+
+  test:exchange:
+    desc: "Exchange a legacy custom_ token for Hydra OAuth tokens"
+    silent: true
+    cmds:
+      - |
+        echo "══ Token Exchange — legacy custom_ token → OAuth tokens ═══════"
+        echo ""
+        echo "  Sending: legacy_token = custom_alice"
+        echo ""
+        RESPONSE=$(curl -s -w '\n%{http_code}' -X POST http://localhost:4455/api/auth/token-exchange \
+          -H 'Content-Type: application/json' \
+          -d '{"legacy_token":"custom_alice","client_id":"test-client","scope":"openid offline profile"}')
+        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+        BODY=$(echo "$RESPONSE" | head -n -1)
+        echo "  HTTP $HTTP_CODE"
+        echo ""
+        echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
+        echo ""
+        ACCESS_TOKEN=$(echo "$BODY" \
+          | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+        if [ -n "$ACCESS_TOKEN" ]; then
+          echo "══ Introspecting access token ══════════════════════════════════"
+          curl -s -X POST "http://localhost:4445/admin/oauth2/introspect" \
+            --data-urlencode "token=$ACCESS_TOKEN" \
+            | python3 -m json.tool
+          echo ""
+          echo "  ✓ sub should be \"alice\" (the part after custom_)"
+        fi
+        echo ""
+
+  test:exchange:invalid:
+    desc: "Verify that tokens without custom_ prefix are rejected (expect 401)"
+    silent: true
+    cmds:
+      - |
+        echo "══ Token Exchange — invalid token (expect 401) ═════════════════"
+        echo ""
+        echo "  Sending: legacy_token = bearer_some_old_token"
+        echo ""
+        curl -s -w '\n→ HTTP %{http_code}\n' -X POST http://localhost:4455/api/auth/token-exchange \
+          -H 'Content-Type: application/json' \
+          -d '{"legacy_token":"bearer_some_old_token","client_id":"test-client"}' \
+          | python3 -m json.tool 2>/dev/null || true
+        echo ""
+        echo "  (expected: {\"error\": \"invalid_token\"})"
+        echo ""
+
   test:profile-srv:
     desc: Run profile-srv integration tests
     dir: profile-srv
@@ -227,7 +277,7 @@ tasks:
 
         URL="http://localhost:4444/oauth2/auth"
         URL="${URL}?client_id=test-client"
-        URL="${URL}&redirect_uri=http://localhost:9010/callback"
+        URL="${URL}&redirect_uri=http://localhost:4455/callback"
         URL="${URL}&response_type=code"
         URL="${URL}&scope=openid+offline+profile"
         URL="${URL}&state=${STATE}"
@@ -248,7 +298,7 @@ tasks:
         echo "══ Step 3: Enter the OTP, then after redirect copy the 'code' ═"
         echo ""
         echo "  Callback URL will look like:"
-        echo "    http://localhost:9010/callback?code=AUTH_CODE&state=${STATE}"
+        echo "    http://localhost:4455/callback?code=AUTH_CODE&state=${STATE}"
         echo ""
         read -r -p "  Paste the 'code' value: " AUTH_CODE
         echo ""
@@ -258,7 +308,7 @@ tasks:
           -H "Content-Type: application/x-www-form-urlencoded" \
           --data-urlencode "grant_type=authorization_code" \
           --data-urlencode "code=${AUTH_CODE}" \
-          --data-urlencode "redirect_uri=http://localhost:9010/callback" \
+          --data-urlencode "redirect_uri=http://localhost:4455/callback" \
           --data-urlencode "client_id=test-client" \
           --data-urlencode "client_secret=test-secret" \
           --data-urlencode "code_verifier=${VERIFIER}")

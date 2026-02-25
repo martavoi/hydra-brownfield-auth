@@ -20,9 +20,9 @@ Hydra acts as the authorization server only. It never owns user records or crede
 2. Hydra redirects to your Login Provider (web-auth), passing a `login_challenge`
 3. web-auth asks for a phone number, calls your Profile gRPC API to send an OTP
 4. User enters the OTP; web-auth verifies it via the Profile API and calls Hydra's Admin API to accept the login
-5. Hydra redirects to your Consent Provider (also web-auth), which auto-accepts
+5. Hydra redirects to your Consent Provider (also web-auth), which fetches the user's profile from the Profile API and builds scope-aware OIDC claims, then auto-accepts with that session data
 6. Hydra issues an authorization code; the client exchanges it for tokens (PKCE verified)
-7. The client receives: `access_token`, `id_token` (JWT), `refresh_token`
+7. The client receives: `access_token`, `id_token` (JWT with profile claims), `refresh_token`
 
 ---
 
@@ -37,7 +37,7 @@ Hydra acts as the authorization server only. It never owns user records or crede
 | Token introspection | ✅ | RFC 7662, admin endpoint |
 | Token revocation | ✅ | RFC 7009 |
 
-The `sub` claim in the `id_token` is the profile ID from your own Profile API — Hydra never defines what a "user" is.
+The `sub` claim in the `id_token` is the profile ID from your own Profile API — Hydra never defines what a "user" is. Additional OIDC claims are populated from the Profile API at consent time, filtered by the requested scopes: `profile` → `name` / `given_name` / `family_name`; `email` → `email`; `phone` → `phone_number`.
 
 ---
 
@@ -114,8 +114,8 @@ task sms-logs
 - The browser lands on `http://localhost:4455/login`
 - Enter any phone number (unknown phones are auto-registered)
 - Copy the OTP code from `task sms-logs`
-- Enter it in the browser; Hydra redirects to `http://localhost:9010/callback?code=...`
-- Copy the `code` from the URL and paste it back into the terminal
+- Enter it in the browser; Hydra redirects to `http://localhost:4455/callback`
+- The callback page displays the authorization code — click the box to copy it, then paste it back into the terminal
 - The script exchanges the code for tokens and introspects the access token
 
 ---
@@ -239,7 +239,7 @@ task up                     Start all services (detached)
 task down                   Stop all services
 task logs                   Follow all service logs
 task sms-logs               Watch for OTP deliveries
-task seed                   Register test OAuth2 client in Hydra
+task seed                   Register (or re-register) test OAuth2 client in Hydra
 task proto                  Regenerate Go protobuf stubs from .proto file
 task test:flow              Interactive end-to-end OAuth2 flow (browser)
 task test:headless          Headless flow step 1: request OTP
@@ -255,6 +255,8 @@ task test:profile-srv       Run profile-srv integration tests
 ## Key design decisions
 
 **Hydra owns no users.** The profile-srv owns all user records. Hydra only issues tokens; the `sub` it puts in those tokens is whatever subject string the Login Provider tells it to use (here: the profile ID).
+
+**Scope-aware OIDC claims.** At consent time the consent provider calls `GetById` on the profile-srv and maps the result to standard OIDC claims filtered by the requested scopes (`profile`, `email`, `phone`). These are passed to Hydra's `acceptConsent` endpoint as `session.id_token`. Both the browser flow and the headless BFF flow follow this pattern.
 
 **Passwordless via OTP.** The login provider implements phone + OTP authentication against the profile-srv gRPC API. Hydra has no knowledge of this — it only sees "login was accepted for subject X".
 

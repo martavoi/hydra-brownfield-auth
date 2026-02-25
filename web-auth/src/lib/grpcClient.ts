@@ -31,6 +31,15 @@ function call<T>(method: string, request: object): Promise<T> {
   });
 }
 
+export interface UserProfile {
+  id: string;
+  phone: string;
+  fname: string;
+  lname: string;
+  email: string;
+  address: string;
+}
+
 export const profileClient = {
   requestOtp: (phone: string) =>
     call<{ sent: boolean }>('RequestOtp', { phone }),
@@ -39,8 +48,8 @@ export const profileClient = {
     call<{ valid: boolean; profile_id: string }>('VerifyOtp', { phone, otp }),
 
   getById: (id: string) =>
-    call<{ profile: object }>('GetById', { id }),
+    call<{ profile: UserProfile }>('GetById', { id }),
 
   getByPhone: (phone: string) =>
-    call<{ profile: object }>('GetByPhone', { phone }),
+    call<{ profile: UserProfile }>('GetByPhone', { phone }),
 };

@@ -1,5 +1,6 @@
 ---
-import { getConsentRequest, acceptConsent } from '../lib/hydraClient';
+import { profileClient } from '../lib/grpcClient';
+import { getConsentRequest, acceptConsent, buildClaims } from '../lib/hydraClient';
 
 const { searchParams } = Astro.url;
 const consentChallenge = searchParams.get('consent_challenge') ?? '';
@@ -12,7 +13,9 @@ let redirectTo: string;
 try {
   const consentReq = await getConsentRequest(consentChallenge);
   const scopes: string[] = consentReq.requested_scope ?? [];
-  const result = await acceptConsent(consentChallenge, scopes);
+  const { profile } = await profileClient.getById(consentReq.subject);
+  const session = buildClaims(profile, scopes);
+  const result = await acceptConsent(consentChallenge, scopes, session);
   redirectTo = result.redirect_to;
 } catch (err) {
   console.error('Consent auto-accept error:', err);

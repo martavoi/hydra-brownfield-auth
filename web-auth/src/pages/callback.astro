@@ -1,0 +1,162 @@
+---
+// OAuth2 callback page — receives the authorization code from Hydra and
+// displays it so the user can complete the PKCE token exchange via CLI.
+const { searchParams } = Astro.url;
+
+const code  = searchParams.get('code')  ?? '';
+const state = searchParams.get('state') ?? '';
+const error = searchParams.get('error') ?? '';
+const errorDescription = searchParams.get('error_description') ?? '';
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{error ? 'Auth Error' : 'Authorization Code'}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 680px;
+    }
+    h1 { font-size: 1.1rem; margin-bottom: 1.5rem; }
+    h1.ok  { color: #3fb950; }
+    h1.err { color: #f85149; }
+    label {
+      display: block;
+      font-size: 0.75rem;
+      color: #8b949e;
+      margin-bottom: 0.35rem;
+    }
+    .field { margin-bottom: 1.25rem; }
+    .code-box {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.85rem;
+      word-break: break-all;
+      color: #79c0ff;
+      cursor: pointer;
+      position: relative;
+    }
+    .code-box:hover { border-color: #58a6ff; }
+    .copy-hint {
+      font-size: 0.7rem;
+      color: #8b949e;
+      margin-top: 0.3rem;
+    }
+    .command-box {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      color: #a5d6ff;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+    .sep {
+      border: none;
+      border-top: 1px solid #21262d;
+      margin: 1.5rem 0;
+    }
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #238636;
+      color: #fff;
+      padding: 0.5rem 1.25rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+    .error-box {
+      background: #1a0a0a;
+      border: 1px solid #f85149;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      color: #f85149;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+
+{error ? (
+  <div class="card">
+    <h1 class="err">Authorization failed</h1>
+    <div class="field">
+      <label>Error</label>
+      <div class="error-box">{error}</div>
+    </div>
+    {errorDescription && (
+      <div class="field">
+        <label>Description</label>
+        <div class="error-box">{errorDescription}</div>
+      </div>
+    )}
+  </div>
+) : (
+  <div class="card">
+    <h1 class="ok">Authorization code received</h1>
+
+    <div class="field">
+      <label>CODE (click to copy)</label>
+      <div class="code-box" id="code-value">{code}</div>
+      <div class="copy-hint">Click the box to copy to clipboard</div>
+    </div>
+
+    {state && (
+      <div class="field">
+        <label>state</label>
+        <div class="code-box" style="color:#8b949e;cursor:default">{state}</div>
+      </div>
+    )}
+
+    <hr class="sep" />
+
+    <div class="field">
+      <label>Exchange for tokens — run in your terminal (fill in VERIFIER from step 1):</label>
+      <div class="command-box" id="cmd-box">task test:token CODE={code} VERIFIER=&lt;paste_verifier_here&gt;</div>
+    </div>
+  </div>
+)}
+
+<div class="toast" id="toast">Copied!</div>
+
+<script>
+  const box = document.getElementById('code-value');
+  const toast = document.getElementById('toast');
+  if (box) {
+    box.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(box.textContent?.trim() ?? '');
+      toast?.classList.add('show');
+      setTimeout(() => toast?.classList.remove('show'), 1800);
+    });
+  }
+</script>
+
+</body>
+</html>
